@@ -1,8 +1,9 @@
 // ========= 主程序（只做控制台交互，逻辑很少） =========
 McVersionScanner scanner = new McVersionScanner();
+const string savedPathFile = "saved_path.txt";
 while (true)
 {
-    Console.WriteLine("请输入版本文件夹路径：");
+    Console.WriteLine("请输入版本文件夹路径：（输入xiaobao = 用上次保存的地址）");
     string? versionPath = Console.ReadLine();
     // 路径为空则直接回到循环开头重新输入
     if (string.IsNullOrWhiteSpace(versionPath))
@@ -10,9 +11,27 @@ while (true)
         Console.WriteLine("路径不能为空，请重新输入。");
         continue;
     }
+    // 快捷：xiaobao = 读取上次保存的地址
+    if (string.Equals(versionPath, "xiaobao", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!File.Exists(savedPathFile))
+        {
+            Console.WriteLine("X  还没有保存过地址，请先输入一次完整路径。");
+            continue;
+        }
+        string? saved = File.ReadAllText(savedPathFile).Trim();
+        if (string.IsNullOrWhiteSpace(saved))
+        {
+            Console.WriteLine("X  保存的地址为空，请重新输入完整路径。");
+            continue;
+        }
+        versionPath = saved;
+    }
     List<McVersion> versionList = scanner.ScanAllVersions(versionPath);
     if (versionList.Count > 0)
     {
+        // 每次成功扫描后覆盖保存最新地址
+        File.WriteAllText(savedPathFile, versionPath);
         Console.WriteLine("\n===本地版本列表===");
         int idx = 1;
         foreach (var ver in versionList)
