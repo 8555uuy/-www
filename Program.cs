@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 // ========= 主程序（只做控制台交互，逻辑很少） =========
 McVersionScanner scanner = new McVersionScanner();
@@ -10,9 +11,14 @@ ShowMainMenu();
 
 void ShowMainMenu()
 {
+    // 首次进入：在桌面建一个 itsl2 文件夹当版本文件夹基准
+    string 桌面路径 = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop);
+    string itsl2路径 = 桌面路径 + "\\" + "itsl2";
+    Directory.CreateDirectory(itsl2路径);
+
     while (true)
     {
-        Console.Clear();
+        Console.Clear();//清除文字
         Console.WriteLine("========== Minecraft 启动器主菜单 ==========");
         Console.WriteLine("  1. 本地导入版本");
         Console.WriteLine("  2. 下载版本");
@@ -21,7 +27,13 @@ void ShowMainMenu()
         Console.WriteLine();
         Console.WriteLine("  请输入选项：");
         string? option = Console.ReadLine()?.Trim() ?? "";
+        /*
+         ?.如果是null，那么?.后面的代码就不执行了，反之则相反
 
+        Trim()：去掉字符串前后空格
+         
+         
+         */
         switch (option)
         {
             case "1":
@@ -117,15 +129,80 @@ void LocalVersionImport(McVersionScanner scanner, string savedPathFile)
     }
 }
 
-// 下载版本界面（占位，等待后续开发）
+// 下载版本界面（真实逻辑：拉清单 -> 选版本 -> 下详情 -> 下client.jar -> 下libraries）
 void DownloadVersionMenu()
 {
     Console.WriteLine();
-    Console.WriteLine("========== [功能开发中] 版本下载 ==========");
-    Console.WriteLine("  此功能尚未实现，敬请期待！");
-    Console.WriteLine("=".PadRight(41, '='));
+    Console.WriteLine("========== 版本在线下载 ==========");
+
+    // 所有下载都存到桌面 itsl2 文件夹下
+    string 根目录 = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) + "\\itsl2";
+    Directory.CreateDirectory(根目录);
+
+    McOnlineVersionFetcher fetcher = new McOnlineVersionFetcher();
+    List<OnlineVersionInfo> releaseVersions = fetcher.FetchReleaseVersions();
+
+    Console.WriteLine("共拉取到 " + releaseVersions.Count + " 个正式版（release）：");
+    for (int i = 0; i < releaseVersions.Count; i++)
+    {
+        Console.WriteLine("  " + (i + 1) + "  " + releaseVersions[i].Id);
+    }
+
+    if (releaseVersions.Count == 0)
+    {
+        Console.WriteLine("X  没有可用版本，返回主菜单");
+        return;
+    }
+
+    Console.Write("请选择版本（输入编号）：");
+    int 选号 = -1;
+    bool 解析成功 = int.TryParse(Console.ReadLine(), out 选号);
+    if (!解析成功 || 选号 < 1 || 选号 > releaseVersions.Count)
+    {
+        Console.WriteLine("X  无效编号，返回主菜单");
+        return;
+    }
+    OnlineVersionInfo 选中版本 = releaseVersions[选号 - 1];
+    string 版本id = 选中版本.Id;
+    string 版本文件夹 = 根目录 + "/versions/" + 版本id;
+    string 版本详情json路径 = 版本文件夹 + "/" + 版本id + ".json";
+
+    // 1. 拉详情 json 原文，存本地
+    string 详情json原文 = fetcher.FetchVersionDetailRaw(选中版本.Url);
+    Directory.CreateDirectory(版本文件夹);
+    File.WriteAllText(版本详情json路径, 详情json原文);
+    Console.WriteLine("已保存版本详情： " + 版本详情json路径);
+
+    // 2. 读取本地详情，下 client.jar
+    VersionDetailInfo 详情 = fetcher.LoadVersionDetailFromFile(版本详情json路径);
+    if (!string.IsNullOrEmpty(详情.ClientJarUrl))
+    {
+        string clientJar路径 = 版本文件夹 + "/client.jar";
+        Console.WriteLine("正在下载 client.jar ...");
+        FileDownloader.DownloadFile(详情.ClientJarUrl, clientJar路径);
+    }
+
+    // 3. 遍历 libraries，每个 jar 下到 libraries/ 下（按 maven path 建多层文件夹）
+    int 库数量 = 详情.Libraries.Count;
+    Console.WriteLine("共 " + 库数量 + " 个库需要下载：");
+    int 计数 = 0;
+    foreach (LibraryInfo 库 in 详情.Libraries)
+    {
+        计数++;
+        // 从 Url 抽 libraries.minecraft.net/ 之后那一段（多级目录+jar文件名），本地也按同样的相对结构存
+        string 相对段 = 库.Url;
+        int 域名下标 = 库.Url.IndexOf("libraries.minecraft.net/", System.StringComparison.OrdinalIgnoreCase);
+        if (域名下标 >= 0)
+            相对段 = 库.Url.Substring(域名下标 + "libraries.minecraft.net/".Length);
+        else
+            相对段 = Path.GetFileName(库.Url);  // 兜底，取不到就用文件名
+        string 库目标 = 根目录 + "/libraries/" + 相对段.Replace('\\', '/');
+        Console.WriteLine("  [" + 计数 + "/" + 库数量 + "] " + 库.Url + "  ->  " + 库目标);
+        FileDownloader.DownloadFile(库.Url, 库目标);
+    }
+
     Console.WriteLine();
-    Console.ReadLine();
+    Console.WriteLine("[完成] 版本 " + 版本id + " 下载结束");
 }
 
 
